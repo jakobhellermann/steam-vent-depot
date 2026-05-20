@@ -18,7 +18,7 @@ mod manifest;
 pub use app_info::{AppInfo, Branch, Depot, DepotConfig, DepotInfos, ManifestRef};
 pub use cdn::{CdnKind, CdnServer, HttpsSupport};
 pub use error::{DepotError, Result};
-pub use manifest::{Chunk, DepotFile, DepotKey, FileKind, Manifest};
+pub use manifest::{Chunk, ChunkHash, DepotFile, DepotKey, FileKind, Manifest};
 
 use steam_vent::Connection;
 
@@ -31,11 +31,22 @@ pub struct DepotClient {
 
 impl DepotClient {
     /// Create a depot client from an authenticated [`Connection`].
+    ///
+    /// The built-in HTTP client has a 10 s connect timeout and a 30 s
+    /// total-request timeout — a single stalled CDN host shouldn't be
+    /// allowed to occupy a parallel slot indefinitely. Use
+    /// [`with_http`](Self::with_http) to override.
     pub fn new(connection: Connection) -> Self {
-        DepotClient {
-            connection,
-            http: reqwest::Client::new(),
-        }
+        // HTTP/2 negotiation via ALPN is already on if reqwest's
+        // `http2` cargo feature is enabled (see this crate's
+        // Cargo.toml). With H/2 the CDN can multiplex many in-flight
+        // chunk requests onto a single TCP+TLS connection per host.
+        let http = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("default reqwest client builder shouldn't fail");
+        DepotClient { connection, http }
     }
 
     /// Create a depot client with a custom [`reqwest::Client`] (useful for sharing

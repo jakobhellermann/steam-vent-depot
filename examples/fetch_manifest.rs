@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
         human_bytes(manifest.size_uncompressed),
     );
 
-    let limit = 1000;
+    let limit = 100000;
     println!("\nfirst {limit} entries:");
     for f in manifest.files.iter().take(limit) {
         let kind = match f.kind {

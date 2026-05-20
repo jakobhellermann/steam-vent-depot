@@ -29,6 +29,7 @@ async fn main() -> Result<()> {
 
     let info = depot.app_info(app_id).await?;
 
+    dbg!(&info);
     println!("app {}", info.app_id);
 
     if !info.depots.branches.is_empty() {

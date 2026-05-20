@@ -6,6 +6,7 @@
 //! `PK\x03\x04` (PKzip) come back as a clear [`DepotError::UnsupportedCompression`].
 
 use std::io::Cursor;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use aes::Aes256;
 use aes::cipher::{
@@ -16,10 +17,19 @@ use crate::cdn::CdnServer;
 use crate::error::{DepotError, Result};
 use crate::manifest::{Chunk, DepotKey};
 
+/// Per-process round-robin index over the CDN host list. Each chunk
+/// request starts at a different host so concurrent fetches spread
+/// across the pool instead of all hammering `cdn_servers[0]`. On
+/// failure we continue through the list as before, so this preserves
+/// the "first 2xx wins" failover behavior.
+static CDN_RR: AtomicUsize = AtomicUsize::new(0);
+
 /// Download a chunk from a CDN host, decrypt, decompress, and verify against
 /// the manifest's expected Adler-32 + decompressed size.
 ///
-/// `cdn_servers` is tried in order; the first one to return 2xx wins.
+/// Hosts are tried starting at a round-robin offset (so parallel callers
+/// don't pile onto the same host); subsequent retries advance through
+/// the list. The first 2xx wins.
 pub(crate) async fn fetch_chunk(
     http: &reqwest::Client,
     cdn_servers: &[CdnServer],
@@ -31,24 +41,65 @@ pub(crate) async fn fetch_chunk(
         return Err(DepotError::NoCdnHosts);
     }
 
+    use tracing::Instrument as _;
+    let start = CDN_RR.fetch_add(1, Ordering::Relaxed);
     let mut last_err: Option<String> = None;
-    for server in cdn_servers {
-        let sha_hex = hex_string(&chunk.sha);
+    for i in 0..cdn_servers.len() {
+        let server = &cdn_servers[start.wrapping_add(i) % cdn_servers.len()];
+        let sha_hex = chunk.sha.to_string();
         let url = format!(
             "{base}/depot/{depot_id}/chunk/{sha_hex}",
             base = server.base_url()
         );
-        match http
-            .get(&url)
-            .send()
+        let http_span = tracing::info_span!(
+            "cdn.http_get",
+            host = %server.host,
+            size_compressed = chunk.size_compressed,
+        );
+        let send_res = async { http.get(&url).send().await }
+            .instrument(http_span)
+            .await;
+        let resp = match send_res {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = Some(format!("{}: {e}", server.host));
+                continue;
+            }
+        };
+        let status = resp.status();
+        if !status.is_success() {
+            // Steam's CDN does not send `Retry-After` on 503s (verified
+            // empirically across cache*.steamcontent.com and the
+            // Akamai/Fastly/Google-fronted hosts), so there's no
+            // useful header to surface here.
+            last_err = Some(format!("{}: HTTP {status}", server.host));
+            continue;
+        }
+        match resp
+            .bytes()
+            .instrument(tracing::info_span!("cdn.http_body"))
             .await
-            .and_then(|r| r.error_for_status())
         {
-            Ok(resp) => match resp.bytes().await {
-                Ok(b) => return decode_chunk(&b, chunk, depot_key),
-                Err(e) => last_err = Some(format!("{}: read body: {e}", server.host)),
-            },
-            Err(e) => last_err = Some(format!("{}: {e}", server.host)),
+            Ok(b) => {
+                // AES-CBC decrypt + LZMA decompress + Adler-32 add up
+                // to ~5–20 ms of CPU per chunk; offload so concurrent
+                // fetches actually parallelise across worker threads.
+                let chunk_clone = chunk.clone();
+                let depot_key = depot_key.clone();
+                let parent = tracing::Span::current();
+                return tokio::task::spawn_blocking(move || {
+                    let _g = tracing::info_span!(
+                        parent: &parent,
+                        "chunk.decode",
+                        size_uncompressed = chunk_clone.size_uncompressed,
+                    )
+                    .entered();
+                    decode_chunk(&b, &chunk_clone, &depot_key)
+                })
+                .await
+                .map_err(|e| std::io::Error::other(format!("decode task panicked: {e}")))?;
+            }
+            Err(e) => last_err = Some(format!("{}: read body: {e}", server.host)),
         }
     }
     Err(DepotError::AllCdnHostsFailed(
@@ -189,8 +240,4 @@ fn steam_adler32(data: &[u8]) -> u32 {
         s2 = (s2 + s1) % MOD;
     }
     (s2 << 16) | s1
-}
-
-fn hex_string(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

@@ -80,6 +80,7 @@ pub struct DepotFile {
     pub sha: Option<[u8; 20]>,
     /// For symlinks: the target path. Empty otherwise.
     pub linktarget: Option<String>,
+    /// Sorted by `offset` ascending. Chunks do not overlap.
     pub chunks: Vec<Chunk>,
 }
 
@@ -92,13 +93,32 @@ pub enum FileKind {
     Symlink,
 }
 
+/// SHA-1 of a chunk's plaintext content. Also the chunk's address on Steam's CDN.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ChunkHash(pub [u8; 20]);
+
+impl std::fmt::Display for ChunkHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for b in &self.0 {
+            write!(f, "{:02x}", b)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for ChunkHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ChunkHash({self})")
+    }
+}
+
 /// Steam splits files into ~1 MiB chunks; each chunk is content-addressed
 /// by its SHA-1 and stored separately on the CDN.
 #[derive(Debug, Clone)]
 pub struct Chunk {
     /// SHA-1 of the *plaintext* chunk content. This is also the CDN object id
     /// (`/depot/<depot>/chunk/<sha-hex>`).
-    pub sha: [u8; 20],
+    pub sha: ChunkHash,
     /// Adler-32 of the plaintext chunk content, checked after decrypt+decompress.
     pub crc: u32,
     pub offset: u64,
@@ -295,7 +315,7 @@ fn build_manifest(
             .and_then(|v| v.try_into().ok())
             .map(|b: [u8; 20]| b);
 
-        let chunks = m
+        let mut chunks = m
             .chunks
             .into_iter()
             .map(|c| {
@@ -305,7 +325,7 @@ fn build_manifest(
                     .try_into()
                     .map_err(|_| DepotError::ManifestMalformed)?;
                 Ok(Chunk {
-                    sha,
+                    sha: ChunkHash(sha),
                     crc: c.crc.unwrap_or(0),
                     offset: c.offset.unwrap_or(0),
                     size_uncompressed: c.cb_original.unwrap_or(0),
@@ -313,6 +333,9 @@ fn build_manifest(
                 })
             })
             .collect::<Result<Vec<_>>>()?;
+        // Steam's wire format does not guarantee chunk ordering; sort here so
+        // callers can rely on the invariant documented on `DepotFile::chunks`.
+        chunks.sort_unstable_by_key(|c| c.offset);
 
         files.push(DepotFile {
             path,
