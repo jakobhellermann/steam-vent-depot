@@ -31,6 +31,69 @@ pub struct AppInfo {
     #[serde(rename = "appid")]
     pub app_id: u32,
     pub depots: DepotInfos,
+    pub common: AppInfoCommon,
+    pub extended: AppInfoExtended,
+    pub config: AppInfoConfig,
+    // ufs
+}
+#[derive(Deserialize, Debug, Clone)]
+pub struct AppInfoCommon {
+    pub name: String,
+    pub r#type: String,
+    /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$logo.jpg
+    pub logo: String,
+    /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$logo_small.jpg
+    pub logo_small: String,
+    /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$icon.jpg
+    pub icon: String,
+    /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$clienttga.tga
+    pub clienttga: String,
+    /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$clienticon.ico
+    pub clienticon: String,
+    /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$linuxclienticon.zip
+    /// (ZIP archive containing PNGs at multiple resolutions.)
+    pub linuxclienticon: String,
+    /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$clienticns.icns
+    pub clienticns: String,
+    // releasestate
+    // languages
+    pub oslist: String,
+    pub osarch: String,
+    pub osextended: String,
+    // steam_deck_compatibility
+    pub metacritic_name: String,
+    // controllertagwizard
+    // controller_support
+    // small_capsule
+    // header_image
+    // library_assets
+    // library_assets_full
+    // store_asset_mtime
+    // associations
+    // primary_genre
+    // genres
+    // category
+    // supported_languages
+    pub steam_release_date: u32,
+    // metacritic_score
+    // metacritic_fullurl
+    // community_visible_stats
+    // community_hub_visible
+    pub gameid: u32,
+    // store_tags
+    // review_score
+    // review_percentage
+}
+#[derive(Deserialize, Debug, Clone)]
+pub struct AppInfoExtended {
+    pub developer: String,
+    pub publisher: String,
+    pub homepage: String,
+}
+#[derive(Deserialize, Debug, Clone)]
+pub struct AppInfoConfig {
+    pub installdir: String,
+    // launch
 }
 
 impl AppInfo {
