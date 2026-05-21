@@ -24,6 +24,7 @@ use steam_vent::Connection;
 
 /// High-level wrapper around steam-vent's [`Connection`] for talking to Steam's
 /// depot/content system.
+#[derive(Clone)]
 pub struct DepotClient {
     connection: Connection,
     http: reqwest::Client,
