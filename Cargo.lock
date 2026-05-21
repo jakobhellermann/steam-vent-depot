@@ -2187,6 +2187,7 @@ dependencies = [
  "cbc 0.2.0",
  "directories",
  "futures-util",
+ "indexmap",
  "jiff",
  "lzma-rs",
  "reqwest",

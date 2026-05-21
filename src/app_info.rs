@@ -13,9 +13,9 @@
 //! Internally this is fetched via Steam's "PICS" (Product Info Cache) service;
 //! you can ignore that name unless you're debugging the wire protocol.
 
-use std::collections::HashMap;
 use std::fmt;
 
+use indexmap::IndexMap;
 use serde::Deserialize;
 use steam_vent::{Connection, ConnectionTrait};
 use steam_vent_proto::steammessages_clientserver_appinfo::{
@@ -162,10 +162,13 @@ struct AppInfoEnvelope {
 /// know is silently dropped.
 #[derive(Debug, Clone, Default)]
 pub struct DepotInfos {
-    /// Each numeric depot id and its config/manifests.
-    pub depots: HashMap<u32, Depot>,
-    /// Build state per branch (`public`, `public-beta`, …).
-    pub branches: HashMap<String, Branch>,
+    /// Each numeric depot id and its config/manifests. Insertion order
+    /// preserved from the VDF — Steam usually lists primary content first,
+    /// then shared/redistributable depots.
+    pub depots: IndexMap<u32, Depot>,
+    /// Build state per branch (`public`, `public-beta`, …). Insertion
+    /// order from VDF.
+    pub branches: IndexMap<String, Branch>,
     /// `true` if the app has private branches the current account can't see.
     pub private_branches: bool,
 }
@@ -221,8 +224,9 @@ pub struct Depot {
     /// Per-OS filter (`oslist = "windows,linux"`, `osarch = "64"`, …).
     pub config: Option<DepotConfig>,
     /// Branch name → manifest. Empty for shared/system depots that don't ship
-    /// their own content.
-    pub manifests: HashMap<String, ManifestRef>,
+    /// their own content. Insertion order from VDF — Steam usually puts
+    /// `public` first, then named branches, then versions newest-first.
+    pub manifests: IndexMap<String, ManifestRef>,
     /// `"1"` for depots Steam auto-generates (workshop bundles, redists, …).
     #[serde(rename = "systemdefined", deserialize_with = "de_vdf_bool", default)]
     pub system_defined: bool,
