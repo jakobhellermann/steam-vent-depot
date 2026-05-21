@@ -41,9 +41,9 @@ pub struct AppInfoCommon {
     pub name: String,
     pub r#type: String,
     /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$logo.jpg
-    pub logo: String,
+    pub logo: Option<String>,
     /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$logo_small.jpg
-    pub logo_small: String,
+    pub logo_small: Option<String>,
     /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$icon.jpg
     pub icon: String,
     /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$clienttga.tga
@@ -52,16 +52,16 @@ pub struct AppInfoCommon {
     pub clienticon: String,
     /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$linuxclienticon.zip
     /// (ZIP archive containing PNGs at multiple resolutions.)
-    pub linuxclienticon: String,
+    pub linuxclienticon: Option<String>,
     /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$clienticns.icns
-    pub clienticns: String,
+    pub clienticns: Option<String>,
     // releasestate
     // languages
     pub oslist: String,
-    pub osarch: String,
-    pub osextended: String,
+    pub osarch: Option<String>,
+    pub osextended: Option<String>,
     // steam_deck_compatibility
-    pub metacritic_name: String,
+    pub metacritic_name: Option<String>,
     // controllertagwizard
     // controller_support
     // small_capsule
@@ -74,7 +74,7 @@ pub struct AppInfoCommon {
     // genres
     // category
     // supported_languages
-    pub steam_release_date: u32,
+    pub steam_release_date: Option<u32>,
     // metacritic_score
     // metacritic_fullurl
     // community_visible_stats
@@ -88,7 +88,7 @@ pub struct AppInfoCommon {
 pub struct AppInfoExtended {
     pub developer: String,
     pub publisher: String,
-    pub homepage: String,
+    pub homepage: Option<String>,
 }
 #[derive(Deserialize, Debug, Clone)]
 pub struct AppInfoConfig {
