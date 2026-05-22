@@ -97,6 +97,33 @@ pub enum FileKind {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChunkHash(pub [u8; 20]);
 
+impl ChunkHash {
+    /// Parse a 40-char lowercase or uppercase hex string. Returns `None` for
+    /// any other length or non-hex byte.
+    pub fn from_hex(s: &str) -> Option<Self> {
+        if s.len() != 40 {
+            return None;
+        }
+        let b = s.as_bytes();
+        let mut bytes = [0u8; 20];
+        for i in 0..20 {
+            let hi = hex_nibble(b[i * 2])?;
+            let lo = hex_nibble(b[i * 2 + 1])?;
+            bytes[i] = (hi << 4) | lo;
+        }
+        Some(ChunkHash(bytes))
+    }
+}
+
+fn hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
 impl std::fmt::Display for ChunkHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for b in &self.0 {
