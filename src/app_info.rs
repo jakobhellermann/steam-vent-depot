@@ -32,7 +32,9 @@ pub struct AppInfo {
     pub app_id: u32,
     pub depots: DepotInfos,
     pub common: AppInfoCommon,
-    pub extended: AppInfoExtended,
+    /// Absent for some system/utility apps (e.g. Steamworks Common
+    /// Redistributables, appid 228980).
+    pub extended: Option<AppInfoExtended>,
     pub config: AppInfoConfig,
     // ufs
 }
@@ -47,9 +49,9 @@ pub struct AppInfoCommon {
     /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$icon.jpg
     pub icon: String,
     /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$clienttga.tga
-    pub clienttga: String,
+    pub clienttga: Option<String>,
     /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$clienticon.ico
-    pub clienticon: String,
+    pub clienticon: Option<String>,
     /// Available at https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/$gameid/$linuxclienticon.zip
     /// (ZIP archive containing PNGs at multiple resolutions.)
     pub linuxclienticon: Option<String>,
@@ -118,7 +120,9 @@ impl AppInfo {
         // The VDF buffer is NUL-terminated; the parser doesn't accept that.
         let vdf = std::str::from_utf8(&buffer)?.trim_end_matches('\0');
 
-        let envelope: AppInfoEnvelope = vdf_reader::from_str(vdf)?;
+        let envelope: AppInfoEnvelope = vdf_reader::from_str(vdf).inspect_err(|err| {
+            tracing::warn!(app_id, %err, vdf, "app_info VDF parse failed");
+        })?;
         Ok(envelope.appinfo)
     }
 
