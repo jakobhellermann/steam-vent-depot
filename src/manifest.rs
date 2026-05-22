@@ -347,6 +347,11 @@ fn build_manifest(
         });
     }
 
+    // Steam's wire format usually delivers files in path-sorted order, but
+    // doesn't guarantee it. Sort so callers can rely on a deterministic
+    // listing for diffs, pagination, etc.
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+
     Ok(Manifest {
         depot_id: metadata.depot_id(),
         manifest_id: metadata.gid_manifest(),
