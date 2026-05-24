@@ -82,6 +82,18 @@ impl DepotClient {
         manifest::fetch_depot_key(&self.connection, app_id, depot_id).await
     }
 
+    /// Download a single chunk: HTTP GET, AES-decrypt, decompress (VZip/LZMA),
+    /// verify Adler-32. Returns the plaintext chunk bytes.
+    pub async fn fetch_chunk(
+        &self,
+        cdn_servers: &[CdnServer],
+        depot_id: u32,
+        chunk: &Chunk,
+        depot_key: &DepotKey,
+    ) -> Result<Vec<u8>> {
+        chunk::fetch_chunk(&self.http, cdn_servers, depot_id, chunk, depot_key).await
+    }
+
     /// Get a one-shot request code authorising a single manifest download.
     /// Codes are short-lived; call this just before [`fetch_manifest`](Self::fetch_manifest).
     pub async fn manifest_request_code(
@@ -101,21 +113,9 @@ impl DepotClient {
         .await
     }
 
-    /// Download a single chunk: HTTP GET, AES-decrypt, decompress (VZip/LZMA),
-    /// verify Adler-32. Returns the plaintext chunk bytes.
-    pub async fn fetch_chunk(
-        &self,
-        cdn_servers: &[CdnServer],
-        depot_id: u32,
-        chunk: &Chunk,
-        depot_key: &DepotKey,
-    ) -> Result<Vec<u8>> {
-        chunk::fetch_chunk(&self.http, cdn_servers, depot_id, chunk, depot_key).await
-    }
-
     /// Download a manifest from a CDN host, decrypt filenames, return the
     /// parsed file list. Tries hosts in order until one succeeds.
-    pub async fn fetch_manifest(
+    pub async fn fetch_manifest_with_code(
         &self,
         cdn_servers: &[CdnServer],
         depot_id: u32,
@@ -132,5 +132,23 @@ impl DepotClient {
             depot_key,
         )
         .await
+    }
+
+    /// Download a manifest from a CDN host, decrypt filenames, return the
+    /// parsed file list. Tries hosts in order until one succeeds.
+    pub async fn fetch_manifest(
+        &self,
+        cdn_servers: &[CdnServer],
+        app_id: u32,
+        depot_id: u32,
+        manifest_id: u64,
+        branch: &str,
+        depot_key: &DepotKey,
+    ) -> Result<Manifest> {
+        let request_code = self
+            .manifest_request_code(app_id, depot_id, manifest_id, branch)
+            .await?;
+        self.fetch_manifest_with_code(cdn_servers, depot_id, manifest_id, request_code, depot_key)
+            .await
     }
 }

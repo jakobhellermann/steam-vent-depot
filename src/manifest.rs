@@ -69,6 +69,14 @@ impl Manifest {
     pub fn find_file(&self, path: &str) -> Option<&DepotFile> {
         self.files.iter().find(|f| f.path == path)
     }
+
+    /// Lists all non-symlink file paths
+    pub fn normal_paths(&self) -> impl Iterator<Item = &str> {
+        self.files
+            .iter()
+            .filter(|file| matches!(file.kind, FileKind::File))
+            .map(|x| x.path.as_str())
+    }
 }
 
 /// One file in a depot manifest.
