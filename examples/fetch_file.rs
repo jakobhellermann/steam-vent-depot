@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
         .manifest_request_code(app_id, depot_id, manifest_gid, &branch)
         .await?;
     let manifest = depot
-        .fetch_manifest(
+        .fetch_manifest_with_code(
             &cdn_servers,
             depot_id,
             manifest_gid,

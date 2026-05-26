@@ -1,11 +1,13 @@
 //! Chunk download + decrypt + decompress.
 //!
 //! Each chunk on the CDN is AES-256-CBC encrypted (same first-16-bytes-via-ECB
-//! IV trick as filenames), and the plaintext inside is a Valve-flavoured
-//! compression container. We support `VZa` (LZMA) today; `VSZa` (Zstd) and
-//! `PK\x03\x04` (PKzip) come back as a clear [`DepotError::UnsupportedCompression`].
+//! IV trick as filenames), and the plaintext inside is one of three
+//! Valve-flavoured compression containers: `VZa` (LZMA), `VSZa` (Zstd), or
+//! `PK\x03\x04` (a plain single-entry ZIP, used for chunks too small for
+//! LZMA/Zstd to be worth it). Anything else comes back as a clear
+//! [`DepotError::UnsupportedCompression`].
 
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use aes::Aes256;
@@ -161,7 +163,23 @@ fn decompress(plain: &[u8]) -> Result<Vec<u8>> {
     if &magic[..3] == b"VZa" {
         return decompress_vzip(plain);
     }
+    if &magic == b"PK\x03\x04" {
+        return decompress_pkzip(plain);
+    }
     Err(DepotError::UnsupportedCompression(magic))
+}
+
+/// PKZip container: a plain ZIP archive with exactly one entry (named `zip`,
+/// not the real file name). Valve uses this instead of VZip/VZstd when a
+/// chunk is too small for LZMA/Zstd's overhead to pay off.
+fn decompress_pkzip(buf: &[u8]) -> Result<Vec<u8>> {
+    let mut zip = zip::ZipArchive::new(Cursor::new(buf))?;
+    if zip.len() != 1 {
+        return Err(DepotError::ChunkZipEntryCount(zip.len()));
+    }
+    let mut out = Vec::new();
+    zip.by_index(0)?.read_to_end(&mut out)?;
+    Ok(out)
 }
 
 /// VZip container: `VZ` + version `a` + 4 byte timestamp + 5 byte LZMA props

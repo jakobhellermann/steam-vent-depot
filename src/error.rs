@@ -43,8 +43,11 @@ pub enum DepotError {
     #[error("all CDN hosts failed; last error: {0}")]
     AllCdnHostsFailed(String),
 
-    #[error("manifest zip: {0}")]
+    #[error("zip: {0}")]
     Zip(#[from] zip::result::ZipError),
+
+    #[error("chunk zip container has {0} entries, expected 1")]
+    ChunkZipEntryCount(usize),
 
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
