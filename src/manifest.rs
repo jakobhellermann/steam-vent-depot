@@ -85,6 +85,7 @@ pub struct DepotFile {
     pub path: String,
     pub size: u64,
     pub kind: FileKind,
+    pub executable: bool,
     pub sha: Option<[u8; 20]>,
     /// For symlinks: the target path. Empty otherwise.
     pub linktarget: Option<String>,
@@ -161,6 +162,7 @@ pub struct Chunk {
     pub size_compressed: u32,
 }
 
+const FLAG_EXECUTABLE: u32 = 0x20;
 const FLAG_DIRECTORY: u32 = 0x40;
 const FLAG_SYMLINK: u32 = 0x200;
 
@@ -376,6 +378,7 @@ fn build_manifest(
             path,
             size: m.size.unwrap_or(0),
             kind,
+            executable: flags & FLAG_EXECUTABLE != 0,
             sha,
             linktarget: m.linktarget.filter(|s| !s.is_empty()),
             chunks,

@@ -95,7 +95,33 @@ pub struct AppInfoExtended {
 #[derive(Deserialize, Debug, Clone)]
 pub struct AppInfoConfig {
     pub installdir: String,
-    // launch
+    #[serde(default)]
+    pub launch: IndexMap<String, LaunchEntry>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct LaunchEntry {
+    pub executable: String,
+    pub arguments: Option<String>,
+    pub workingdir: Option<String>,
+    pub description: Option<String>,
+    /// Localised `description`, keyed by Steam language name.
+    #[serde(default)]
+    pub description_loc: IndexMap<String, String>,
+    pub r#type: Option<String>,
+    pub config: Option<LaunchConfig>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct LaunchConfig {
+    /// Comma-separated, e.g. `macos` or `windows,linux`.
+    pub oslist: Option<String>,
+    pub osarch: Option<String>,
+    /// Names a branch in [`DepotInfos::branches`].
+    pub betakey: Option<String>,
+    pub ownsdlc: Option<String>,
+    pub realm: Option<String>,
+    pub steamdeck: Option<String>,
 }
 
 impl AppInfo {
