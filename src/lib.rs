@@ -18,7 +18,9 @@ mod manifest;
 pub use app_info::{AppInfo, Branch, Depot, DepotConfig, DepotInfos, ManifestRef};
 pub use cdn::{CdnKind, CdnServer, HttpsSupport};
 pub use error::{DepotError, Result};
-pub use manifest::{Chunk, ChunkHash, DepotFile, DepotKey, FileKind, Manifest};
+pub use manifest::{
+    Chunk, ChunkHash, DepotFile, DepotFileKind, DepotKey, FileHash, FileType, Manifest,
+};
 
 use steam_vent::Connection;
 

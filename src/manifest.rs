@@ -74,55 +74,134 @@ impl Manifest {
     pub fn normal_paths(&self) -> impl Iterator<Item = &str> {
         self.files
             .iter()
-            .filter(|file| matches!(file.kind, FileKind::File))
+            .filter(|file| file.is_file())
             .map(|x| x.path.as_str())
     }
 }
 
-/// One file in a depot manifest.
+/// One entry in a depot manifest.
 #[derive(Debug, Clone)]
 pub struct DepotFile {
     pub path: String,
     pub size: u64,
-    pub kind: FileKind,
-    pub executable: bool,
-    pub sha: Option<[u8; 20]>,
-    /// For symlinks: the target path. Empty otherwise.
-    pub linktarget: Option<String>,
-    /// Sorted by `offset` ascending. Chunks do not overlap.
-    pub chunks: Vec<Chunk>,
+    pub kind: DepotFileKind,
 }
 
-/// What this entry represents. Steam packs files, directories and symlinks
-/// into a single list and distinguishes them via flag bits.
+#[derive(Debug, Clone)]
+pub enum DepotFileKind {
+    /// Chunks are sorted by `offset` ascending and do not overlap.
+    File {
+        sha: FileHash,
+        executable: bool,
+        chunks: Vec<Chunk>,
+    },
+    Directory,
+    Symlink {
+        target: String,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FileKind {
+pub enum FileType {
     File,
     Directory,
     Symlink,
 }
 
-/// SHA-1 of a chunk's plaintext content. Also the chunk's address on Steam's CDN.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ChunkHash(pub [u8; 20]);
+impl DepotFile {
+    pub fn file_type(&self) -> FileType {
+        match &self.kind {
+            DepotFileKind::File { .. } => FileType::File,
+            DepotFileKind::Directory => FileType::Directory,
+            DepotFileKind::Symlink { .. } => FileType::Symlink,
+        }
+    }
 
-impl ChunkHash {
-    /// Parse a 40-char lowercase or uppercase hex string. Returns `None` for
-    /// any other length or non-hex byte.
-    pub fn from_hex(s: &str) -> Option<Self> {
-        if s.len() != 40 {
-            return None;
+    pub fn sha(&self) -> Option<FileHash> {
+        match &self.kind {
+            DepotFileKind::File { sha, .. } => Some(*sha),
+            _ => None,
         }
-        let b = s.as_bytes();
-        let mut bytes = [0u8; 20];
-        for i in 0..20 {
-            let hi = hex_nibble(b[i * 2])?;
-            let lo = hex_nibble(b[i * 2 + 1])?;
-            bytes[i] = (hi << 4) | lo;
+    }
+
+    pub fn chunks(&self) -> &[Chunk] {
+        match &self.kind {
+            DepotFileKind::File { chunks, .. } => chunks,
+            _ => &[],
         }
-        Some(ChunkHash(bytes))
+    }
+
+    pub fn executable(&self) -> bool {
+        matches!(&self.kind, DepotFileKind::File { executable: true, .. })
+    }
+
+    pub fn linktarget(&self) -> Option<&str> {
+        match &self.kind {
+            DepotFileKind::Symlink { target } => Some(target),
+            _ => None,
+        }
+    }
+
+    pub fn is_file(&self) -> bool {
+        matches!(self.kind, DepotFileKind::File { .. })
+    }
+
+    pub fn is_dir(&self) -> bool {
+        matches!(self.kind, DepotFileKind::Directory)
+    }
+
+    pub fn is_symlink(&self) -> bool {
+        matches!(self.kind, DepotFileKind::Symlink { .. })
     }
 }
+
+macro_rules! sha1_hex_newtype {
+    ($(#[$m:meta])* $name:ident) => {
+        $(#[$m])*
+        #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct $name(pub [u8; 20]);
+
+        impl $name {
+            /// Parse a 40-char lowercase or uppercase hex string. Returns `None`
+            /// for any other length or non-hex byte.
+            pub fn from_hex(s: &str) -> Option<Self> {
+                if s.len() != 40 {
+                    return None;
+                }
+                let b = s.as_bytes();
+                let mut bytes = [0u8; 20];
+                for i in 0..20 {
+                    bytes[i] = (hex_nibble(b[i * 2])? << 4) | hex_nibble(b[i * 2 + 1])?;
+                }
+                Some($name(bytes))
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                for b in &self.0 {
+                    write!(f, "{:02x}", b)?;
+                }
+                Ok(())
+            }
+        }
+
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}({self})", stringify!($name))
+            }
+        }
+    };
+}
+
+sha1_hex_newtype!(
+    /// SHA-1 of a chunk's plaintext content. Also the chunk's address on Steam's CDN.
+    ChunkHash
+);
+sha1_hex_newtype!(
+    /// SHA-1 of a file's full content
+    FileHash
+);
 
 fn hex_nibble(b: u8) -> Option<u8> {
     match b {
@@ -130,21 +209,6 @@ fn hex_nibble(b: u8) -> Option<u8> {
         b'a'..=b'f' => Some(b - b'a' + 10),
         b'A'..=b'F' => Some(b - b'A' + 10),
         _ => None,
-    }
-}
-
-impl std::fmt::Display for ChunkHash {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for b in &self.0 {
-            write!(f, "{:02x}", b)?;
-        }
-        Ok(())
-    }
-}
-
-impl std::fmt::Debug for ChunkHash {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ChunkHash({self})")
     }
 }
 
@@ -340,48 +404,52 @@ fn build_manifest(
 
         let flags = m.flags.unwrap_or(0);
         let kind = if flags & FLAG_DIRECTORY != 0 {
-            FileKind::Directory
+            DepotFileKind::Directory
         } else if flags & FLAG_SYMLINK != 0 {
-            FileKind::Symlink
+            let target = m
+                .linktarget
+                .filter(|s| !s.is_empty())
+                .ok_or(DepotError::ManifestMalformed)?;
+            DepotFileKind::Symlink { target }
         } else {
-            FileKind::File
-        };
+            let sha: [u8; 20] = m
+                .sha_content
+                .ok_or(DepotError::ManifestMalformed)?
+                .try_into()
+                .map_err(|_| DepotError::ManifestMalformed)?;
 
-        let sha = m
-            .sha_content
-            .and_then(|v| v.try_into().ok())
-            .map(|b: [u8; 20]| b);
-
-        let mut chunks = m
-            .chunks
-            .into_iter()
-            .map(|c| {
-                let sha: [u8; 20] = c
-                    .sha
-                    .ok_or(DepotError::ManifestMalformed)?
-                    .try_into()
-                    .map_err(|_| DepotError::ManifestMalformed)?;
-                Ok(Chunk {
-                    sha: ChunkHash(sha),
-                    crc: c.crc.unwrap_or(0),
-                    offset: c.offset.unwrap_or(0),
-                    size_uncompressed: c.cb_original.unwrap_or(0),
-                    size_compressed: c.cb_compressed.unwrap_or(0),
+            let mut chunks = m
+                .chunks
+                .into_iter()
+                .map(|c| {
+                    let sha: [u8; 20] = c
+                        .sha
+                        .ok_or(DepotError::ManifestMalformed)?
+                        .try_into()
+                        .map_err(|_| DepotError::ManifestMalformed)?;
+                    Ok(Chunk {
+                        sha: ChunkHash(sha),
+                        crc: c.crc.unwrap_or(0),
+                        offset: c.offset.unwrap_or(0),
+                        size_uncompressed: c.cb_original.unwrap_or(0),
+                        size_compressed: c.cb_compressed.unwrap_or(0),
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        // Steam's wire format does not guarantee chunk ordering; sort here so
-        // callers can rely on the invariant documented on `DepotFile::chunks`.
-        chunks.sort_unstable_by_key(|c| c.offset);
+                .collect::<Result<Vec<_>>>()?;
+            // Steam's wire format does not guarantee chunk ordering.
+            chunks.sort_unstable_by_key(|c| c.offset);
+
+            DepotFileKind::File {
+                sha: FileHash(sha),
+                executable: flags & FLAG_EXECUTABLE != 0,
+                chunks,
+            }
+        };
 
         files.push(DepotFile {
             path,
             size: m.size.unwrap_or(0),
             kind,
-            executable: flags & FLAG_EXECUTABLE != 0,
-            sha,
-            linktarget: m.linktarget.filter(|s| !s.is_empty()),
-            chunks,
         });
     }
 
