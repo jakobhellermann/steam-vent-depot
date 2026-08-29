@@ -69,6 +69,12 @@ pub(crate) async fn fetch_chunk(
             }
         };
         let status = resp.status();
+        if crate::cdn::is_not_authorized(status) {
+            return Err(DepotError::NotAuthorized(format!(
+                "{}: HTTP {status}",
+                server.host
+            )));
+        }
         if !status.is_success() {
             // Steam's CDN does not send `Retry-After` on 503s (verified
             // empirically across cache*.steamcontent.com and the

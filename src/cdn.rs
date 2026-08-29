@@ -156,3 +156,28 @@ pub(crate) async fn fetch_cdn_servers(conn: &Connection, cell_id: u32) -> Result
     }
     Ok(servers)
 }
+
+/// Auth failures are deterministic — the request code isn't authorized for
+/// this account, and every CDN host will give the same answer. Fetchers
+/// short-circuit on these instead of burning the host list (~seconds of
+/// retries) for a verdict that was final on the first byte.
+pub(crate) fn is_not_authorized(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_not_authorized;
+    use reqwest::StatusCode;
+
+    #[test]
+    fn classifies_auth_failures_as_deterministic() {
+        assert!(is_not_authorized(StatusCode::UNAUTHORIZED));
+        assert!(is_not_authorized(StatusCode::FORBIDDEN));
+        // Transient/server-side failures must keep their host rotation.
+        assert!(!is_not_authorized(StatusCode::NOT_FOUND));
+        assert!(!is_not_authorized(StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(!is_not_authorized(StatusCode::SERVICE_UNAVAILABLE));
+        assert!(!is_not_authorized(StatusCode::OK));
+    }
+}

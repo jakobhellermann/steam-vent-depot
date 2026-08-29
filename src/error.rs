@@ -43,6 +43,12 @@ pub enum DepotError {
     #[error("all CDN hosts failed; last error: {0}")]
     AllCdnHostsFailed(String),
 
+    /// The CDN refused the request with 401/403. Deterministic: the
+    /// request code isn't authorized for this account, so no host would
+    /// have accepted it either.
+    #[error("not authorized: {0}")]
+    NotAuthorized(String),
+
     #[error("zip: {0}")]
     Zip(#[from] zip::result::ZipError),
 

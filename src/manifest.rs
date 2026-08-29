@@ -301,12 +301,21 @@ pub(crate) async fn fetch_manifest(
     let mut last_err: Option<String> = None;
     for server in cdn_servers {
         let url = server.manifest_url(depot_id, manifest_id, request_code);
-        let raw = match http
-            .get(&url)
-            .send()
-            .await
-            .and_then(|r| r.error_for_status())
-        {
+        let resp = match http.get(&url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = Some(format!("{}: {e}", server.host));
+                continue;
+            }
+        };
+        if crate::cdn::is_not_authorized(resp.status()) {
+            return Err(DepotError::NotAuthorized(format!(
+                "{}: HTTP {}",
+                server.host,
+                resp.status()
+            )));
+        }
+        let raw = match resp.error_for_status() {
             Ok(resp) => match resp.bytes().await {
                 Ok(b) => b.to_vec(),
                 Err(e) => {
