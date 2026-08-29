@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
-use steam_vent_depot::{DepotClient, DepotError, FileKind};
+use steam_vent_depot::{DepotClient, DepotError, DepotFileKind};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -56,18 +56,18 @@ async fn main() -> Result<()> {
     let file = manifest
         .find_file(&path)
         .ok_or_else(|| DepotError::FileNotFound(path.clone()))?;
-    if file.kind != FileKind::File {
+    if !matches!(file.kind, DepotFileKind::File { .. }) {
         anyhow::bail!("{path:?} is a {:?}, not a regular file", file.kind);
     }
     eprintln!(
         "found {path:?}: {} bytes in {} chunks",
         file.size,
-        file.chunks.len()
+        file.chunks().len()
     );
 
     // Reassemble into a buffer in chunk-offset order. The manifest typically lists
     // chunks already in offset order, but be defensive.
-    let mut sorted = file.chunks.clone();
+    let mut sorted = file.chunks().to_vec();
     sorted.sort_by_key(|c| c.offset);
 
     let mut buf = vec![0u8; file.size as usize];
@@ -97,61 +97,5 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-mod login {
-    use anyhow::Result;
-    use directories::ProjectDirs;
-    use std::collections::HashMap;
-    use std::fs;
-    use std::path::PathBuf;
-    use steam_vent::auth::{
-        AuthConfirmationHandler, ConsoleAuthConfirmationHandler, DeviceConfirmationHandler,
-        FileGuardDataStore,
-    };
-    use steam_vent::{Connection, DiscoverOptions, ServerList};
-
-    fn path() -> PathBuf {
-        ProjectDirs::from("", "steam-vent", "steam-vent")
-            .expect("no cache dir")
-            .cache_dir()
-            .join("refresh_tokens.json")
-    }
-    fn load(a: &str) -> Option<String> {
-        let raw = fs::read_to_string(path()).ok()?;
-        let m: HashMap<String, String> = serde_json::from_str(&raw).ok()?;
-        m.get(a).cloned()
-    }
-    fn save(a: &str, t: &str) -> Result<()> {
-        let p = path();
-        if let Some(dir) = p.parent() {
-            fs::create_dir_all(dir)?;
-        }
-        let mut m: HashMap<String, String> = fs::read_to_string(&p)
-            .ok()
-            .and_then(|r| serde_json::from_str(&r).ok())
-            .unwrap_or_default();
-        m.insert(a.into(), t.into());
-        fs::write(&p, serde_json::to_string(&m)?)?;
-        Ok(())
-    }
-    pub async fn establish_connection(account: &str, password: &str) -> Result<Connection> {
-        let server_list =
-            ServerList::discover_with(DiscoverOptions::default().with_cell(4)).await?;
-        if let Some(t) = load(account)
-            && let Ok(c) = Connection::access(&server_list, account, &t).await
-        {
-            return Ok(c);
-        }
-        let c = Connection::login(
-            &server_list,
-            account,
-            password,
-            FileGuardDataStore::user_cache(),
-            ConsoleAuthConfirmationHandler::default().or(DeviceConfirmationHandler),
-        )
-        .await?;
-        if let Some(t) = c.access_token() {
-            save(account, t)?;
-        }
-        Ok(c)
-    }
-}
+#[path = "support/login.rs"]
+mod login;

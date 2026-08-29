@@ -66,11 +66,8 @@ async fn main() -> Result<()> {
         let depot_key = &depot_key;
         async move {
             eprintln!("fetching manifest {gid} (branch {branch})");
-            let code = depot
-                .manifest_request_code(app_id, depot_id, *gid, branch)
-                .await?;
             let m = depot
-                .fetch_manifest(cdn_servers, depot_id, *gid, code, depot_key)
+                .fetch_manifest(cdn_servers, app_id, depot_id, *gid, branch, depot_key)
                 .await?;
             eprintln!("fetched manifest {gid}");
             Ok::<_, anyhow::Error>(m)
@@ -87,7 +84,7 @@ async fn main() -> Result<()> {
         .map(|m| {
             let mut map = HashMap::new();
             for f in &m.files {
-                for c in &f.chunks {
+                for c in f.chunks() {
                     map.insert(c.sha, c.size_compressed);
                 }
             }
@@ -194,62 +191,5 @@ fn human_bytes(n: u64) -> String {
     }
 }
 
-mod login {
-    use std::collections::HashMap;
-    use std::fs;
-    use std::path::PathBuf;
-
-    use anyhow::Result;
-    use directories::ProjectDirs;
-    use steam_vent::auth::{
-        AuthConfirmationHandler, ConsoleAuthConfirmationHandler, DeviceConfirmationHandler,
-        FileGuardDataStore,
-    };
-    use steam_vent::{Connection, DiscoverOptions, ServerList};
-
-    fn refresh_token_path() -> PathBuf {
-        ProjectDirs::from("", "steam-vent", "steam-vent")
-            .expect("no cache dir")
-            .cache_dir()
-            .join("refresh_tokens.json")
-    }
-    fn load(account: &str) -> Option<String> {
-        let raw = fs::read_to_string(refresh_token_path()).ok()?;
-        let map: HashMap<String, String> = serde_json::from_str(&raw).ok()?;
-        map.get(account).cloned().filter(|t| !t.is_empty())
-    }
-    fn save(account: &str, token: &str) -> Result<()> {
-        let path = refresh_token_path();
-        if let Some(p) = path.parent() {
-            fs::create_dir_all(p)?;
-        }
-        let mut map: HashMap<String, String> = fs::read_to_string(&path)
-            .ok()
-            .and_then(|r| serde_json::from_str(&r).ok())
-            .unwrap_or_default();
-        map.insert(account.into(), token.into());
-        fs::write(&path, serde_json::to_string(&map)?)?;
-        Ok(())
-    }
-    pub async fn establish_connection(account: &str, password: &str) -> Result<Connection> {
-        let server_list =
-            ServerList::discover_with(DiscoverOptions::default().with_cell(4)).await?;
-        if let Some(t) = load(account)
-            && let Ok(c) = Connection::access(&server_list, account, &t).await
-        {
-            return Ok(c);
-        }
-        let c = Connection::login(
-            &server_list,
-            account,
-            password,
-            FileGuardDataStore::user_cache(),
-            ConsoleAuthConfirmationHandler::default().or(DeviceConfirmationHandler),
-        )
-        .await?;
-        if let Some(t) = c.access_token() {
-            save(account, t)?;
-        }
-        Ok(c)
-    }
-}
+#[path = "support/login.rs"]
+mod login;
